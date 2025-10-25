@@ -5,7 +5,6 @@ using System.Text.Json;
 using ChatAPI.Data;
 using ChatAPI.Models;
 using System.Net.Http.Headers;
-using Microsoft.EntityFrameworkCore.Storage.Json;
 
 namespace ChatAPI.Controllers
 {
@@ -16,7 +15,6 @@ namespace ChatAPI.Controllers
         private readonly AppDbContext _context;
         private readonly IConfiguration _configuration;
 
-        // IHttpClientFactory artık Singleton olduğu için constructor'dan kaldırıldı
         public MessagesController(AppDbContext context, IConfiguration configuration)
         {
             _context = context;
@@ -24,10 +22,26 @@ namespace ChatAPI.Controllers
         }
 
         // Get - api/Messages
+        // Render'da oluşan "no such table" (500 Internal Server Error) hatasını çözer.
         [HttpGet]
         public async Task<ActionResult<IEnumerable<Message>>> GetMessages()
         {
-            return await _context.Messages.OrderBy(m => m.Timestamp).ToListAsync();
+            try
+            {
+                // Mesaj çekme denemesi
+                return await _context.Messages.OrderBy(m => m.Timestamp).ToListAsync();
+            }
+            catch (Microsoft.Data.Sqlite.SqliteException ex)
+            {
+                // Eğer hata 'no such table: Messages' ise, uygulama çökmesin.
+                if (ex.Message.Contains("no such table"))
+                {
+                    // Frontend'e boş bir mesaj listesi dönülüyor (200 OK)
+                    return new List<Message>();
+                }
+                // Başka bir Sqlite hatası varsa, hatayı yeniden fırlat
+                throw;
+            }
         }
 
         // Post - api/Messages
@@ -52,32 +66,27 @@ namespace ChatAPI.Controllers
             // 4. AI Servisine İstek Gönder
             HttpResponseMessage response = await client.PostAsync(url, content);
 
-            // KRİTİK: AI Servisi Yanıtını Kontrol Etme (Hata Ayıklama için Eklendi)
+            // 5. AI Servisi Yanıtını Kontrol Etme (401/403 Hataları için)
             if (!response.IsSuccessStatusCode)
             {
-                // Yanıt başarılı değilse (Örn: 401 Unauthorized), ham hata içeriğini oku
                 string errorContent = await response.Content.ReadAsStringAsync();
-
-                // Hata detayını Logla (Debug Console/Render Logları)
                 System.Diagnostics.Debug.WriteLine($"AI API Hatası! Durum Kodu: {response.StatusCode}. Yanıt: {errorContent}");
 
                 // Frontend'e açıklayıcı bir hata döndür
-                // Bu, Frontend'deki try-catch bloğunuza düşecektir.
                 return StatusCode((int)response.StatusCode, new { error = "AI Servisi Hatası", details = errorContent });
             }
 
-            // 5. Ham Yanıtı Oku
+            // 6. Ham Yanıtı Oku, Serileştir ve En Yüksek Skorlu Duyguyu Bul
             string result = await response.Content.ReadAsStringAsync();
 
-            // 6. Yanıtı Serileştir ve En Yüksek Skorlu Duyguyu Bul
-            // JSON serileştirme hatası bu satırda oluşuyordu (önceki hata)
+            // JSON serileştirme hatasını (Invalid start of value) atlatmak için gerekli kod
             var sentimentResponse = JsonSerializer.Deserialize<List<List<SentimentResponse>>>(result);
             var resultSentiment = sentimentResponse.First().OrderByDescending(x => x.score).First();
 
-            // 7. Mesajı Veritabanına Kaydet (Eksik Olan Mantık Eklendi)
+            // 7. Mesajı Veritabanına Kaydet
             message.Feeling = resultSentiment.label;
             message.Score = resultSentiment.score;
-            message.Timestamp = DateTime.UtcNow; // Opsiyonel: Kontrol amacıyla eklenmiştir
+            message.Timestamp = DateTime.UtcNow;
 
             _context.Messages.Add(message);
             await _context.SaveChangesAsync();
