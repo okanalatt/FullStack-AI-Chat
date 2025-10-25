@@ -29,13 +29,6 @@ builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
 
-using (var scope = app.Services.CreateScope())
-{
-    var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-
-    // SQLite dosyasýný ve Messages tablosunu oluþturmak için migration'larý uygula
-    dbContext.Database.Migrate();
-}
 
 // HTTP Request Pipeline'a CORS'u ekleme
 app.UseCors(MyAllowSpecificOrigins);
