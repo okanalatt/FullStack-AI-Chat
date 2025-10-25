@@ -1,110 +1,108 @@
-﻿import React, { useState, useEffect } from 'react';
+﻿import React, { useState } from 'react';
+import axios from 'axios';
 import './App.css';
 
-// Backend URL'iniz (launchSettings.json dosyanizdaki HTTP portu: 5136)
-// Bu URL'i kendi localhost adresinizle degistirdiginizden emin olun.
-const API_URL = 'http://localhost:5136/api/messages';
+// KRİTİK: BURAYI KENDİ RENDER API ADRESİNİZLE DEĞİŞTİRİN
+const API_BASE_URL = 'https://FULLSTACK-AI-CHAT-1SJA.ONRENDER.COM/api/messages';
 
 function App() {
+    // Mesaj listesi: Artık tam Message objesini tutacak
     const [messages, setMessages] = useState([]);
-    const [nickname, setNickname] = useState('');
-    const [messageText, setMessageText] = useState('');
+    const [currentMessage, setCurrentMessage] = useState('');
+    const [nickname, setNickname] = useState('Anonim');
 
-    // 1. Mesajlari Yükleme (GET) - Uygulama ilk açıldığında çalışır
-    useEffect(() => {
-        fetchMessages();
-    }, []);
+    const handleSend = async (e) => {
+        e.preventDefault();
 
-    const fetchMessages = async () => {
-        try {
-            const response = await fetch(API_URL);
-            const data = await response.json();
-            setMessages(data);
-        } catch (error) {
-            console.error("Mesajlar yuklenirken hata:", error);
-        }
-    };
+        if (!currentMessage.trim()) return;
 
-    // 2. Mesaj Gönderme (POST)
-    const sendMessage = async () => {
-        if (!nickname || !messageText) return alert("Rumuz ve mesaj gerekli!");
-
-        const newMessage = {
-            // Backend modelinizdeki alan adlari: Name, Description
-            name: nickname,
-            description: messageText,
-            // Backendde AI tarafından doldurulacak alanlar
-            feeling: "string",
-            score: 0
+        // KRİTİK DEĞİŞİKLİK: C# Message modeline UYARLANDI
+        const messageData = {
+            Name: nickname, // C# Message.Name alanına eşleşir
+            Description: currentMessage, // C# Message.Description alanına eşleşir
         };
 
         try {
-            const response = await fetch(API_URL, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(newMessage)
-            });
+            // Backend'e POST isteği at
+            const response = await axios.post(API_BASE_URL, messageData);
 
-            if (response.ok) {
-                // Mesaj gonderimi basarili oldu, listeyi guncelle
-                fetchMessages();
-                setMessageText(''); // Inputu temizle
-            } else {
-                console.error("Mesaj gonderilemedi.");
-            }
+            // Backend'den dönen yanıt muhtemelen AI sonucunu içeriyor (Kontrolcünüze göre sadece Ok(resultSentiment) dönüyor)
+            // ANCAK, projenin gereksinimi: kaydedilen mesajı listeye eklemek.
+            // Bu nedenle, Backend'deki PostMessage metodunuzun ya tüm Message objesini kaydetmesini
+            // ya da kaydedilen Message objesiyle birlikte Sentiment sonucunu döndürmesini BEKLİYORUZ.
+
+            // Backend'iniz şu anda SADECE AI sonucunu (SentimentResponse) döndürdüğü için,
+            // mesajı biz manuel olarak listeye ekleyelim ve Feeling/Score alanlarını dolduralım.
+
+            const sentimentResult = response.data; // SentimentResponse
+
+            const newMessage = {
+                // Gönderdiğimiz veriler
+                Name: nickname,
+                Description: currentMessage,
+                Timestamp: new Date().toISOString(), // Simülasyon
+
+                // AI'dan gelen veriler
+                Feeling: sentimentResult.label, // C# SentimentResponse.label'dan
+                Score: sentimentResult.score // C# SentimentResponse.score'dan
+            };
+
+            // Mesaj listesini güncelle
+            setMessages(prevMessages => [...prevMessages, newMessage]);
+
+            // Giriş alanını temizle
+            setCurrentMessage('');
+
         } catch (error) {
-            console.error("Mesaj gonderimi sirasinda hata:", error);
+            console.error('Mesaj gönderme hatası:', error.response ? error.response.data : error.message);
+            alert('Mesaj gönderilemedi. Konsolu kontrol edin.');
         }
     };
 
     return (
-        <div className="App">
+        <div className="App" style={{ padding: '20px' }}>
             <h1>FullStack Chat + AI Analiz 💬</h1>
 
-            {/* Mesaj Listesi */}
-            <div className="chat-container">
-                {messages.map((msg, index) => (
-                    <div key={index} className="message">
-                        <strong>{msg.name}:</strong> {msg.description}
-
-                        {/* AI Sonucunu Gösterme */}
-                        <span className={`sentiment ${msg.feeling?.toLowerCase()}`}>
-                            ({msg.feeling} - {msg.score?.toFixed(2)})
-                        </span>
-                        <small> - {new Date(msg.timestamp).toLocaleTimeString()}</small>
-                    </div>
-                ))}
+            {/* Mesaj Listesi Alanı */}
+            <div style={{ border: '1px solid #ccc', height: '300px', overflowY: 'scroll', marginBottom: '10px', padding: '10px' }}>
+                {messages.length === 0 ? (
+                    <p style={{ textAlign: 'center', color: '#666' }}>Henüz mesaj yok. Bir mesaj gönderin!</p>
+                ) : (
+                    messages.map((msg, index) => (
+                        <div key={index} style={{ marginBottom: '5px' }}>
+                            {/* C# Modelindeki Name ve Description alanlarını kullanıyoruz */}
+                            <strong>{msg.Name}:</strong> {msg.Description}
+                            <span style={{
+                                marginLeft: '10px', fontWeight: 'bold',
+                                color: msg.Feeling === 'pozitif' ? 'green' : msg.Feeling === 'negatif' ? 'red' : 'gray'
+                            }}>
+                                ({msg.Feeling || 'Analiz Ediliyor'})
+                            </span>
+                        </div>
+                    ))
+                )}
             </div>
 
             {/* Mesaj Gönderme Formu */}
-            <div className="input-area">
+            <form onSubmit={handleSend}>
                 <input
                     type="text"
                     placeholder="Rumuzunuz"
                     value={nickname}
                     onChange={(e) => setNickname(e.target.value)}
+                    style={{ marginRight: '10px', padding: '8px' }}
                 />
                 <input
                     type="text"
                     placeholder="Mesajınızı yazın..."
-                    value={messageText}
-                    onChange={(e) => setMessageText(e.target.value)}
+                    value={currentMessage}
+                    onChange={(e) => setCurrentMessage(e.target.value)}
+                    style={{ padding: '8px', width: '300px', marginRight: '10px' }}
                 />
-                <button onClick={sendMessage}>Gönder</button>
-            </div>
-
-            {/* Basit CSS stillerini ekleyebilirsiniz */}
-            <style>{`
-        .chat-container { height: 300px; overflow-y: scroll; border: 1px solid #ccc; padding: 10px; margin-bottom: 20px; }
-        .message { margin-bottom: 8px; padding: 5px; border-bottom: 1px dotted #eee; }
-        .input-area input { margin-right: 10px; padding: 8px; }
-        .sentiment { font-weight: bold; margin-left: 10px; }
-        /* Backend'den gelen etiketlere gore renkler */
-        .hata { color: red; }
-        .positive { color: green; }
-        .negative { color: darkred; }
-        .nötür { color: orange; }
-      `}</style>
+                <button type="submit" style={{ padding: '8px 15px' }}>
+                    Gönder
+                </button>
+            </form>
         </div>
     );
 }
